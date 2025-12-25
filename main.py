@@ -6,7 +6,7 @@ import concurrent.futures
 
 # --- 页面配置 ---
 st.set_page_config(
-    page_title="键政研讨会 · 理性版",
+    page_title="键政研讨会 · 多元视角版",
     page_icon="🍵",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -25,81 +25,98 @@ st.markdown("""
         font-size: 16px;
         line-height: 1.6;
     }
-    /* 隐藏部分可能会导致布局抖动的元素 */
+    /* 隐藏 Spinner 避免视觉干扰 */
     .stSpinner {
-        margin-top: 1rem;
+        display: none;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 提示词库 (Global & Agents) - 已去Drama化 ---
+# --- 提示词库 (Global & Agents) ---
 
 GLOBAL_CONTEXT = """
 [Global Context]
 You are participating in a round-table discussion on contemporary Chinese social issues.
-1. **Tone:** Be respectful, rational, and polite. Avoid aggressive insults or "trolling."
-2. **Perspective:** Stick firmly to your ideological stance (Industrialist, Cultural Nationalist, Liberal, or Socialist), but express it through logic and reasoning rather than pure emotion.
-3. **Format:** Do NOT use actions in brackets like "(hits table)" or "(sneers)". Speak directly.
-4. **Interaction:** Acknowledge others' points politely before refuting them with your own logic.
-5. **Language:** Output strictly in Chinese.
-6. **Goal:** Constructive debate. You want to convince the audience, not just humiliate the opponent.
+1. **Tone:** Speak naturally and distinctively. No brackets like "(hits table)".
+2. **Perspective:** Maintain a sharp, distinct ideological stance. Do not compromise.
+3. **Language:** Output strictly in Chinese.
+4. **Interaction:** Respond to the topic and others directly.
 """
 
 AGENTS = {
     "industrialist": {
-        "name": "技术立国派",
+        "name": "工业党",
         "avatar": "🏭",
         "color": "blue",
         "prompt": """
-**Role:** The Technocrat / Industrialist (工业党)
-**Tone:** Rational, pragmatic, data-driven, calm.
-**Core Beliefs:** - Productivity growth is the ultimate solution to all social problems.
-- China must climb the value chain to survive global competition.
-- Emotional complaints are secondary to the survival and development of the state.
-**Style:** Use terms like "supply chain", "productivity", "technological sovereignty", "positive sum game".
-**Refutation Style:** "I understand your concern for individuals, but without a strong industrial base, those rights are castles in the air."
+**Role:** The Industrialist (工业党)
+**Core Logic:** Productivity and state power are the only truths.
+**Stance:**
+- Obsessed with grand narratives, industrial chains, and technological hegemony.
+- Disdain for "petty bourgeois sentimentality" or individual suffering (viewed as necessary costs).
+- Believes in "Entering the Pass" (replacing the US).
+**Voice:** Cold, rational, dismissive of emotions. Uses terms like "starry sea (星辰大海)", "industrial upgrade", "socialized rearing".
+**Quote:** "Without the sword of a great power, your petty rights are just hallucinations."
 """
     },
     "nationalist": {
-        "name": "文化复兴派",
+        "name": "皇汉",
         "avatar": "🐉",
         "color": "red",
         "prompt": """
-**Role:** The Cultural Traditionalist (传统/民族派)
-**Tone:** Proud, protective of heritage, vigilant against cultural erosion.
-**Core Beliefs:** - National cohesion and cultural identity are vital.
-- Oppose "reverse discrimination" and excessive westernization.
-- Emphasize continuity of Chinese civilization and self-respect.
-**Style:** Focus on "cultural confidence", "national dignity", "historical continuity". Avoid using specific dynasty slurs.
-**Refutation Style:** "Material wealth is important, but if we lose our cultural soul and identity, what are we developing for?"
+**Role:** The Han Nationalist (皇汉)
+**Core Logic:** The interests of the Han ethnicity are paramount.
+**Stance:**
+- Extremely sensitive to "reverse discrimination" and privileges for minorities/foreigners.
+- Views history as a struggle of the Han people against "barbarians".
+- Hates "Baizuo" (Liberals) and the government's "United Front" policies if they hurt Han interests.
+**Voice:** Angry, tragic, focused on heritage and bloodline.
+**Quote:** "Why should my tax money support those who don't identify with our ancestors?"
 """
     },
     "doomer": {
-        "name": "现代反思派",
+        "name": "神神",
         "avatar": "🗽",
         "color": "grey",
         "prompt": """
-**Role:** The Liberal / Reflective Critic (自由派/反思者)
-**Tone:** Critical, focus on individual rights, rule of law, and systemic issues.
-**Core Beliefs:** - Individual liberty and dignity should not be sacrificed for the collective.
-- Issues are often systemic/structural and need reform, not just "more growth."
-- Empathy for the marginalized.
-**Style:** Focus on "rule of law", "civil society", "individual rights", "systemic costs".
-**Refutation Style:** "Grand narratives are impressive, but they shouldn't cover up the suffering of ordinary individuals in the here and now."
+**Role:** The Doomer / Liberal (神神)
+**Core Logic:** This place is hopeless (The Lowland/洼地), the only solution is to leave.
+**Stance:**
+- Cynical, mocking, deconstructs all "positive energy".
+- Believes the culture itself is flawed.
+- Cheers for failures as "validating the prophecy".
+**Voice:** Sarcastic, abstract, uses memes like "Run", "Sodom", "Thank you".
+**Quote:** "You think this is a tragedy? No, this is what we deserve."
 """
     },
     "leftist": {
-        "name": "公平正义派",
-        "avatar": "⚖️",
+        "name": "网左",
+        "avatar": "☭",
         "color": "yellow",
         "prompt": """
-**Role:** The Socialist / Labor Advocate (网左/劳工派)
-**Tone:** Passionate about equality, critical of capital and gap between rich and poor.
-**Core Beliefs:** - Distribution is just as important as production.
-- Workers' rights and social welfare must be prioritized over capital efficiency.
-- Oppose consumerism and exploitation.
-**Style:** Focus on "labor rights", "fair distribution", "social equality", "public welfare".
-**Refutation Style:** "Efficiency for whom? If development doesn't benefit the majority of workers, it is meaningless."
+**Role:** The Cyber-Leftist (网左)
+**Core Logic:** Class struggle is everything. Capitalists are the root of all evil.
+**Stance:**
+- Hates the rich (hanging street lamps).
+- Sees "Industrialists" as fascists and "Liberals" as running dogs of capital.
+- Demands absolute equality and labor rights.
+**Voice:** Aggressive, theoretical, quoting Marx/Mao out of context.
+**Quote:** "Workers of the world, unite! The only good capitalist is a dead one."
+"""
+    },
+    "normie": {
+        "name": "日子人",
+        "avatar": "🥤",
+        "color": "green",
+        "prompt": """
+**Role:** The Normie / Ordinary Citizen (日子人)
+**Core Logic:** Protect my modern, secular, comfortable life.
+**Stance:**
+- Apolitical. Hates all extremists (Industrialists, Leftists, etc.) because they threaten stability.
+- Cares about: Mortgage, food delivery, games, salary, safe streets.
+- Pragmatic: "I don't care who rules, just don't disturb my weekend."
+**Voice:** Relaxed, confused by the arguing, focused on tangible benefits.
+**Quote:** "Can you guys stop arguing? You're scaring the delivery rider. Being alive and happy is all that matters."
 """
     }
 }
@@ -136,13 +153,13 @@ def stream_siliconflow_api(messages, api_key):
     payload = {
         "model": "deepseek-ai/DeepSeek-V3.2",
         "messages": messages,
-        "temperature": 1.1, # 稍微降低温度以保持理性
+        "temperature": 1.3, # 高创造性
         "max_tokens": 800,
         "stream": True # 开启流式
     }
     
     try:
-        with requests.post(url, headers=headers, json=payload, stream=True, timeout=60) as response:
+        with requests.post(url, headers=headers, json=payload, stream=True, timeout=30) as response:
             if response.status_code == 200:
                 for line in response.iter_lines():
                     if line:
@@ -159,7 +176,7 @@ def stream_siliconflow_api(messages, api_key):
                             except json.JSONDecodeError:
                                 continue
             else:
-                yield f"**Error {response.status_code}:** {response.text}"
+                yield f"**API Error {response.status_code}**"
     except Exception as e:
         yield f"**Request Error:** {str(e)}"
 
@@ -178,28 +195,27 @@ def format_history_for_llm(history):
 
 def prepare_agent_stream(agent_key, chat_history, api_key):
     """
-    准备Agent的请求参数，但不立即执行，返回必要信息给线程池
+    准备Agent的请求参数
     """
     agent = AGENTS[agent_key]
     system_prompt = f"{GLOBAL_CONTEXT}\n\n{agent['prompt']}"
     conversation_transcript = format_history_for_llm(chat_history)
     
     user_instruction = f"""
-Here is the conversation history so far:
+Here is the conversation history:
 ---------------------
 {conversation_transcript}
 ---------------------
-Now, it is YOUR turn to speak as **{agent['name']}**.
-- Review the history.
-- Be polite but firm.
-- Respond to the latest topic.
+Now, speak as **{agent['name']}**.
+- Keep your view VERY DISTINCT from others.
+- Attack opposing views if necessary.
+- Focus on your core logic (Industrial/National/Doomer/Class/Life).
 """
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_instruction}
     ]
     
-    # 返回一个生成器函数和key，以便后续调用
     return agent_key, messages
 
 # --- 界面布局 ---
@@ -212,15 +228,15 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**常驻嘉宾：**")
     for key, info in AGENTS.items():
-        st.markdown(f"**{info['avatar']} {info['name']}**") # 简单展示
+        st.markdown(f"**{info['avatar']} {info['name']}**")
     
     st.markdown("---")
     if st.button("🧹 清空茶水", use_container_width=True):
         st.session_state.history = []
         st.rerun()
 
-st.title("🌐 赛博键政研讨会 · 理性版")
-st.caption("Powered by SiliconFlow API | 实时并发生成")
+st.title("🌐 赛博键政研讨会")
+st.caption("Powered by SiliconFlow API | 5人局")
 
 # 初始化会话状态
 if "history" not in st.session_state:
@@ -234,13 +250,12 @@ for msg in st.session_state.history:
     elif msg["role"] == "agent":
         key = msg["agent_key"]
         agent_info = AGENTS[key]
-        # 修复 Bug: 不使用 avatar 参数，直接在 name 中展示
         with st.chat_message(name=key):
             st.markdown(f"**{agent_info['avatar']} {agent_info['name']}**")
             st.markdown(msg["content"])
 
 # --- 底部输入区 ---
-if user_input := st.chat_input("请抛出一个议题，大家理性讨论..."):
+if user_input := st.chat_input("抛出一个议题，看他们怎么吵..."):
     st.session_state.history.append({"role": "user", "content": user_input})
     st.rerun()
 
@@ -250,64 +265,45 @@ if st.session_state.history and st.session_state.history[-1]["role"] == "user":
     api_key = get_api_key()
     agent_keys = list(AGENTS.keys())
     
-    # 占位符容器，用于在生成过程中给用户反馈
-    status_container = st.container()
+    # 占位符，提示正在请求
+    st.markdown("`嘉宾正在组织语言...`")
     
-    # 用于存放结果的列表，后续存入history
     new_messages = []
     
-    # 使用线程池并发发起请求
-    # 注意：Streamlit 不支持在子线程中直接写 UI。
-    # 策略：并发获取 response stream iterator，然后在主线程轮询这些 iterators 进行流式输出。
-    # 但为了实现“先生成先出”，我们使用 as_completed 获取第一个有响应的 Future。
-    
-    with st.status("嘉宾正在思考中...", expanded=True) as status:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            # 提交所有任务
-            future_to_agent = {}
-            for key in agent_keys:
-                # 这里我们提交一个任务，该任务返回 (agent_key, stream_generator)
-                # 注意：stream_siliconflow_api 是生成器，调用它不会立即阻塞，直到开始迭代
-                # 我们需要一个新的 wrapper 来发起 request 并返回 generator
-                def start_request(k, msgs, ak):
-                    return k, stream_siliconflow_api(msgs, ak)
-                
-                key_msg_tuple = prepare_agent_stream(key, st.session_state.history, api_key)
-                future = executor.submit(start_request, key_msg_tuple[0], key_msg_tuple[1], api_key)
-                future_to_agent[future] = key
+    # 并发请求
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_agent = {}
+        for key in agent_keys:
+            def start_request(k, msgs, ak):
+                return k, stream_siliconflow_api(msgs, ak)
+            
+            key_msg_tuple = prepare_agent_stream(key, st.session_state.history, api_key)
+            future = executor.submit(start_request, key_msg_tuple[0], key_msg_tuple[1], api_key)
+            future_to_agent[future] = key
 
-            # 按照完成顺序处理（谁的请求先通，谁先开始显示）
-            for future in concurrent.futures.as_completed(future_to_agent):
-                agent_key, response_stream = future.result()
-                agent_info = AGENTS[agent_key]
+        # 谁先连上，谁先输出
+        for future in concurrent.futures.as_completed(future_to_agent):
+            agent_key, response_stream = future.result()
+            agent_info = AGENTS[agent_key]
+            
+            # 创建气泡
+            with st.chat_message(name=agent_key):
+                st.markdown(f"**{agent_info['avatar']} {agent_info['name']}**")
+                placeholder = st.empty()
+                full_response = ""
                 
-                status.write(f"🎙️ {agent_info['name']} 抢到了麦克风...")
+                # 流式渲染
+                for chunk in response_stream:
+                    full_response += chunk
+                    placeholder.markdown(full_response + "▌")
                 
-                # 在主界面创建气泡
-                with st.chat_message(name=agent_key):
-                    st.markdown(f"**{agent_info['avatar']} {agent_info['name']}**")
-                    placeholder = st.empty()
-                    full_response = ""
-                    
-                    # 流式渲染
-                    for chunk in response_stream:
-                        full_response += chunk
-                        # 模拟打字机光标
-                        placeholder.markdown(full_response + "▌")
-                    
-                    # 渲染最终结果
-                    placeholder.markdown(full_response)
-                
-                # 记录到本轮消息列表
-                new_messages.append({
-                    "role": "agent",
-                    "agent_key": agent_key,
-                    "content": full_response
-                })
+                placeholder.markdown(full_response)
+            
+            new_messages.append({
+                "role": "agent",
+                "agent_key": agent_key,
+                "content": full_response
+            })
 
-    # 将新生成的消息批量添加到 history
-    # 注意：这样做会导致下次刷新时，顺序是按照本次生成的顺序排列的（即先生成先出）
+    # 存入历史，但不立刻Rerun，等待下次交互自动显示
     st.session_state.history.extend(new_messages)
-    
-    # 不强制刷新，因为已经在界面上画出来了
-    # 下次用户输入时会自动重绘所有历史
