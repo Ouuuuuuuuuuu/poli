@@ -1,5 +1,6 @@
 import streamlit as st
-from openai import OpenAI
+import requests
+import json
 import time
 
 # --- 页面配置 ---
@@ -94,7 +95,7 @@ AGENTS = {
 }
 
 # --- API 设置 ---
-def get_client():
+def get_api_key():
     api_key = None
     try:
         api_key = st.secrets["SILICONFLOW_API_KEY"]
@@ -109,12 +110,37 @@ def get_client():
         st.sidebar.warning("需要配置 SILICONFLOW_API_KEY 才能运行")
         st.stop()
         
-    return OpenAI(
-        api_key=api_key,
-        base_url="https://api.siliconflow.cn/v1"
-    )
+    return api_key
 
 # --- 核心逻辑 ---
+
+def call_siliconflow_api(messages, api_key):
+    """使用 requests 直接调用 API"""
+    url = "https://api.siliconflow.cn/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "messages": messages,
+        "temperature": 1.3,
+        "max_tokens": 600,
+        "stream": False
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data['choices'][0]['message']['content']
+        else:
+            return f"API Error {response.status_code}: {response.text}"
+            
+    except Exception as e:
+        return f"Request Error: {str(e)}"
 
 def format_history_for_llm(history):
     """将聊天记录转换为LLM可读的剧本格式"""
@@ -131,14 +157,13 @@ def format_history_for_llm(history):
     return transcript
 
 def generate_response(agent_key, chat_history):
-    client = get_client()
+    api_key = get_api_key()
     agent = AGENTS[agent_key]
     
     # 1. 准备系统提示词
     system_prompt = f"{GLOBAL_CONTEXT}\n\n{agent['prompt']}"
     
     # 2. 准备历史对话上下文 (Transcript)
-    # 我们把整个对话历史打包成一个 User Message 发送给模型，让它根据上下文发言
     conversation_transcript = format_history_for_llm(chat_history)
     
     user_instruction = f"""
@@ -157,16 +182,7 @@ Now, it is YOUR turn to speak as **{agent['name']}**.
         {"role": "user", "content": user_instruction}
     ]
     
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-ai/DeepSeek-V3.2", # 保持模型设定
-            messages=messages,
-            temperature=1.3, # 保持高创造性
-            max_tokens=600
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Error: {str(e)}"
+    return call_siliconflow_api(messages, api_key)
 
 # --- 界面布局 ---
 
