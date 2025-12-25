@@ -1,309 +1,261 @@
 import streamlit as st
-import requests
-import json
-import time
-import concurrent.futures
+import pandas as pd
+import numpy as np
+import ephem
+import math
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+from sklearn.ensemble import RandomForestClassifier
 
 # --- 页面配置 ---
 st.set_page_config(
-    page_title="键政研讨会 · 多元视角版",
-    page_icon="🍵",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Alyssa心情晴雨表",
+    page_icon="🔮",
+    layout="centered"
 )
 
 # --- 样式优化 ---
 st.markdown("""
 <style>
-    .stChatMessage {
-        padding: 1rem;
+    .big-font { font-size: 24px !important; font-weight: bold; }
+    .metric-card {
+        background-color: #f9f9f9;
+        padding: 20px;
         border-radius: 10px;
-        margin-bottom: 1rem;
         border: 1px solid #eee;
+        text-align: center;
     }
-    .stMarkdown p {
-        font-size: 16px;
-        line-height: 1.6;
-    }
-    /* 隐藏 Spinner 避免视觉干扰 */
-    .stSpinner {
-        display: none;
-    }
+    .stAlert { padding: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 提示词库 (Global & Agents) ---
-
-GLOBAL_CONTEXT = """
-[Global Context]
-You are participating in a round-table discussion on contemporary Chinese social issues.
-1. **Tone:** Speak naturally and distinctively. No brackets like "(hits table)".
-2. **Perspective:** Maintain a sharp, distinct ideological stance. Do not compromise.
-3. **Language:** Output strictly in Chinese.
-4. **Interaction:** Respond to the topic and others directly.
-"""
-
-AGENTS = {
-    "industrialist": {
-        "name": "工业党",
-        "avatar": "🏭",
-        "color": "blue",
-        "prompt": """
-**Role:** The Industrialist (工业党)
-**Core Logic:** Productivity and state power are the only truths.
-**Stance:**
-- Obsessed with grand narratives, industrial chains, and technological hegemony.
-- Disdain for "petty bourgeois sentimentality" or individual suffering (viewed as necessary costs).
-- Believes in "Entering the Pass" (replacing the US).
-**Voice:** Cold, rational, dismissive of emotions. Uses terms like "starry sea (星辰大海)", "industrial upgrade", "socialized rearing".
-**Quote:** "Without the sword of a great power, your petty rights are just hallucinations."
-"""
-    },
-    "nationalist": {
-        "name": "皇汉",
-        "avatar": "🐉",
-        "color": "red",
-        "prompt": """
-**Role:** The Han Nationalist (皇汉)
-**Core Logic:** The interests of the Han ethnicity are paramount.
-**Stance:**
-- Extremely sensitive to "reverse discrimination" and privileges for minorities/foreigners.
-- Views history as a struggle of the Han people against "barbarians".
-- Hates "Baizuo" (Liberals) and the government's "United Front" policies if they hurt Han interests.
-**Voice:** Angry, tragic, focused on heritage and bloodline.
-**Quote:** "Why should my tax money support those who don't identify with our ancestors?"
-"""
-    },
-    "doomer": {
-        "name": "神神",
-        "avatar": "🗽",
-        "color": "grey",
-        "prompt": """
-**Role:** The Doomer / Liberal (神神)
-**Core Logic:** This place is hopeless (The Lowland/洼地), the only solution is to leave.
-**Stance:**
-- Cynical, mocking, deconstructs all "positive energy".
-- Believes the culture itself is flawed.
-- Cheers for failures as "validating the prophecy".
-**Voice:** Sarcastic, abstract, uses memes like "Run", "Sodom", "Thank you".
-**Quote:** "You think this is a tragedy? No, this is what we deserve."
-"""
-    },
-    "leftist": {
-        "name": "网左",
-        "avatar": "☭",
-        "color": "yellow",
-        "prompt": """
-**Role:** The Cyber-Leftist (网左)
-**Core Logic:** Class struggle is everything. Capitalists are the root of all evil.
-**Stance:**
-- Hates the rich (hanging street lamps).
-- Sees "Industrialists" as fascists and "Liberals" as running dogs of capital.
-- Demands absolute equality and labor rights.
-**Voice:** Aggressive, theoretical, quoting Marx/Mao out of context.
-**Quote:** "Workers of the world, unite! The only good capitalist is a dead one."
-"""
-    },
-    "normie": {
-        "name": "日子人",
-        "avatar": "🥤",
-        "color": "green",
-        "prompt": """
-**Role:** The Normie / Ordinary Citizen (日子人)
-**Core Logic:** Protect my modern, secular, comfortable life.
-**Stance:**
-- Apolitical. Hates all extremists (Industrialists, Leftists, etc.) because they threaten stability.
-- Cares about: Mortgage, food delivery, games, salary, safe streets.
-- Pragmatic: "I don't care who rules, just don't disturb my weekend."
-**Voice:** Relaxed, confused by the arguing, focused on tangible benefits.
-**Quote:** "Can you guys stop arguing? You're scaring the delivery rider. Being alive and happy is all that matters."
-"""
-    }
-}
-
-# --- API 设置 ---
-def get_api_key():
-    api_key = None
-    try:
-        api_key = st.secrets["SILICONFLOW_API_KEY"]
-    except (FileNotFoundError, KeyError):
-        pass
-    
-    if not api_key:
-        api_key = st.session_state.get("api_key_input")
-        
-    if not api_key:
-        st.sidebar.warning("需要配置 SILICONFLOW_API_KEY 才能运行")
-        st.stop()
-        
-    return api_key
-
-# --- 核心逻辑 ---
-
-def stream_siliconflow_api(messages, api_key):
+# ==========================================
+# 1. 核心天文计算函数
+# ==========================================
+def get_planetary_features(date_str):
     """
-    生成器函数，流式返回API内容。
+    计算指定日期的天文特征 (用于预测)
     """
-    url = "https://api.siliconflow.cn/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": "deepseek-ai/DeepSeek-V3.2",
-        "messages": messages,
-        "temperature": 1.3, # 高创造性
-        "max_tokens": 800,
-        "stream": True # 开启流式
-    }
-    
     try:
-        with requests.post(url, headers=headers, json=payload, stream=True, timeout=30) as response:
-            if response.status_code == 200:
-                for line in response.iter_lines():
-                    if line:
-                        decoded_line = line.decode('utf-8')
-                        if decoded_line.startswith('data: '):
-                            json_str = decoded_line[6:]
-                            if json_str == '[DONE]':
-                                break
-                            try:
-                                data = json.loads(json_str)
-                                content = data['choices'][0]['delta'].get('content', '')
-                                if content:
-                                    yield content
-                            except json.JSONDecodeError:
-                                continue
-            else:
-                yield f"**API Error {response.status_code}**"
+        observer = ephem.Observer()
+        observer.date = date_str
+        
+        # 初始化星体
+        mars = ephem.Mars()
+        pluto = ephem.Pluto()
+        venus = ephem.Venus()
+        saturn = ephem.Saturn()
+        
+        # 计算位置
+        mars.compute(observer)
+        pluto.compute(observer)
+        venus.compute(observer)
+        saturn.compute(observer)
+        
+        # 获取黄经
+        mars_lon = math.degrees(mars.hlon)
+        pluto_lon = math.degrees(pluto.hlon)
+        venus_lon = math.degrees(venus.hlon)
+        saturn_lon = math.degrees(saturn.hlon)
+        
+        # 特征计算
+        mars_rad = math.radians(mars_lon)
+        mars_sin = math.sin(mars_rad)
+        mars_cos = math.cos(mars_rad)
+        
+        pluto_rad = math.radians(pluto_lon)
+        pluto_sin = math.sin(pluto_rad)
+        pluto_cos = math.cos(pluto_rad)
+        
+        # 金土相位压力
+        diff = abs(venus_lon - saturn_lon) % 360
+        diff_mod_90 = diff % 90
+        dist_to_aspect = min(diff_mod_90, 90 - diff_mod_90)
+        aspect_vs = 1 / (dist_to_aspect + 1)
+        
+        # 默认地磁值
+        geo_stress_default = 0.5 
+        
+        return [mars_sin, mars_cos, pluto_sin, pluto_cos, aspect_vs, geo_stress_default]
     except Exception as e:
-        yield f"**Request Error:** {str(e)}"
+        st.error(f"天文计算出错: {e}")
+        return [0, 0, 0, 0, 0, 0.5]
 
-def format_history_for_llm(history):
-    transcript = ""
-    for msg in history:
-        role = msg["role"]
-        content = msg["content"]
+# ==========================================
+# 2. 模型训练 (带缓存)
+# ==========================================
+@st.cache_resource
+def train_model():
+    """
+    读取CSV并训练模型，结果被缓存，除非重启应用否则不重跑
+    """
+    try:
+        # 读取数据
+        chat_df = pd.read_csv('合并后的分析结果.csv')
+        features_df = pd.read_csv('engineered_features.csv')
         
-        if role == "user":
-            transcript += f"【主持人】: {content}\n\n"
-        elif role == "agent":
-            agent_name = AGENTS[msg["agent_key"]]["name"]
-            transcript += f"【{agent_name}】: {content}\n\n"
-    return transcript
+        # 数据预处理
+        chat_df['Date'] = pd.to_datetime(chat_df['日期'])
+        features_df['Date'] = pd.to_datetime(features_df['Date'])
+        
+        # 重命名情感列
+        if 'Alyssa__情感分bert' in chat_df.columns:
+            chat_df.rename(columns={'Alyssa__情感分bert': 'Alyssa_Sentiment'}, inplace=True)
+            
+        # 合并数据
+        df = pd.merge(chat_df[['Date', 'Alyssa_Sentiment']], features_df, on='Date', how='inner')
+        
+        # 构造训练特征 (映射 csv 列名 到 模型特征名)
+        df['Mars_Sin'] = df['Mars_Lon_sin']
+        df['Mars_Cos'] = df['Mars_Lon_cos']
+        df['Pluto_Sin'] = df['Pluto_Lon_sin']
+        df['Pluto_Cos'] = df['Pluto_Lon_cos']
+        
+        # 重算金土相位 (保持与预测逻辑一致)
+        def calc_aspect(row):
+            diff = abs(row['Venus_Lon'] - row['Saturn_Lon']) % 360
+            diff_mod_90 = diff % 90
+            dist = min(diff_mod_90, 90 - diff_mod_90)
+            return 1 / (dist + 1)
+        
+        df['Aspect_Venus_Saturn'] = df.apply(calc_aspect, axis=1)
+        df['Geo_Stress'] = df['Global_Stress']
+        
+        # 定义目标变量
+        median_val = df['Alyssa_Sentiment'].median()
+        df['Target'] = (df['Alyssa_Sentiment'] > median_val).astype(int)
+        
+        features = ['Mars_Sin', 'Mars_Cos', 'Pluto_Sin', 'Pluto_Cos', 'Aspect_Venus_Saturn', 'Geo_Stress']
+        
+        X = df[features]
+        y = df['Target']
+        
+        # 训练
+        clf = RandomForestClassifier(n_estimators=300, max_depth=7, random_state=42)
+        clf.fit(X, y)
+        
+        return clf, median_val
+        
+    except FileNotFoundError:
+        st.error("❌ 找不到数据文件！请确保 `合并后的分析结果.csv` 和 `engineered_features.csv` 已上传到根目录。")
+        return None, None
+    except Exception as e:
+        st.error(f"❌ 训练过程出错: {e}")
+        return None, None
 
-def prepare_agent_stream(agent_key, chat_history, api_key):
-    """
-    准备Agent的请求参数
-    """
-    agent = AGENTS[agent_key]
-    system_prompt = f"{GLOBAL_CONTEXT}\n\n{agent['prompt']}"
-    conversation_transcript = format_history_for_llm(chat_history)
-    
-    user_instruction = f"""
-Here is the conversation history:
----------------------
-{conversation_transcript}
----------------------
-Now, speak as **{agent['name']}**.
-- Keep your view VERY DISTINCT from others.
-- Attack opposing views if necessary.
-- Focus on your core logic (Industrial/National/Doomer/Class/Life).
-"""
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_instruction}
-    ]
-    
-    return agent_key, messages
+# ==========================================
+# 3. 界面逻辑
+# ==========================================
 
-# --- 界面布局 ---
+st.title("👸 Alyssa今天开心吗？")
+st.caption("基于历史聊天数据与星象特征的随机森林预测模型")
 
+# 侧边栏：日期选择
 with st.sidebar:
-    st.header("🍵 茶馆控制台")
-    if "SILICONFLOW_API_KEY" not in st.secrets:
-        st.text_input("SiliconFlow API Key", type="password", key="api_key_input")
-    
-    st.markdown("---")
-    st.markdown("**常驻嘉宾：**")
-    for key, info in AGENTS.items():
-        st.markdown(f"**{info['avatar']} {info['name']}**")
-    
-    st.markdown("---")
-    if st.button("🧹 清空茶水", use_container_width=True):
-        st.session_state.history = []
-        st.rerun()
+    st.header("⚙️ 设置")
+    target_date = st.date_input("选择预测日期", datetime.now())
+    st.info("模型利用火星、冥王星位置及金土相位压力来预测情绪波动。")
 
-st.title("🌐 赛博键政研讨会")
-st.caption("Powered by SiliconFlow API | 5人局")
+# 加载模型
+with st.spinner('正在分析星象数据与历史记忆...'):
+    clf, median_val = train_model()
 
-# 初始化会话状态
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# --- 渲染历史记录 ---
-for msg in st.session_state.history:
-    if msg["role"] == "user":
-        with st.chat_message("user"):
-            st.write(msg["content"])
-    elif msg["role"] == "agent":
-        key = msg["agent_key"]
-        agent_info = AGENTS[key]
-        with st.chat_message(name=key):
-            st.markdown(f"**{agent_info['avatar']} {agent_info['name']}**")
-            st.markdown(msg["content"])
-
-# --- 底部输入区 ---
-if user_input := st.chat_input("抛出一个议题，看他们怎么吵..."):
-    st.session_state.history.append({"role": "user", "content": user_input})
-    st.rerun()
-
-# --- 自动并发回复逻辑 ---
-if st.session_state.history and st.session_state.history[-1]["role"] == "user":
+if clf:
+    # --- 今日/选中日期预测 ---
+    st.divider()
     
-    api_key = get_api_key()
-    agent_keys = list(AGENTS.keys())
+    date_str = target_date.strftime('%Y-%m-%d')
+    input_features = get_planetary_features(date_str)
     
-    # 占位符，提示正在请求
-    st.markdown("`嘉宾正在组织语言...`")
+    # 预测
+    prob_happy = clf.predict_proba([input_features])[0][1]
+    is_happy = prob_happy > 0.5
     
-    new_messages = []
+    # 显示大卡片
+    col1, col2 = st.columns([1, 2])
     
-    # 并发请求
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        future_to_agent = {}
-        for key in agent_keys:
-            def start_request(k, msgs, ak):
-                return k, stream_siliconflow_api(msgs, ak)
+    with col1:
+        if is_happy:
+            st.markdown("# ☀️")
+        else:
+            st.markdown("# 🌧️")
             
-            key_msg_tuple = prepare_agent_stream(key, st.session_state.history, api_key)
-            future = executor.submit(start_request, key_msg_tuple[0], key_msg_tuple[1], api_key)
-            future_to_agent[future] = key
+    with col2:
+        st.markdown(f"### {date_str} 预测")
+        if is_happy:
+            st.markdown(f"<span style='color:green; font-size:24px'>心情不错 (High)</span>", unsafe_allow_html=True)
+            st.write(f"开心概率: **{prob_happy:.1%}**")
+        else:
+            st.markdown(f"<span style='color:grey; font-size:24px'>可能低落 (Low)</span>", unsafe_allow_html=True)
+            st.write(f"开心概率: **{prob_happy:.1%}**")
 
-        # 谁先连上，谁先输出
-        for future in concurrent.futures.as_completed(future_to_agent):
-            agent_key, response_stream = future.result()
-            agent_info = AGENTS[agent_key]
-            
-            # 创建气泡
-            with st.chat_message(name=agent_key):
-                st.markdown(f"**{agent_info['avatar']} {agent_info['name']}**")
-                placeholder = st.empty()
-                full_response = ""
-                
-                # 流式渲染
-                for chunk in response_stream:
-                    full_response += chunk
-                    placeholder.markdown(full_response + "▌")
-                
-                placeholder.markdown(full_response)
-            
-            new_messages.append({
-                "role": "agent",
-                "agent_key": agent_key,
-                "content": full_response
-            })
+    # 关键因子解释
+    with st.expander("查看今日星象影响因子"):
+        feat_names = ['火星正弦', '火星余弦', '冥王星正弦', '冥王星余弦', '金土相位压力', '地磁压力(预设)']
+        
+        # 简单显示金土压力
+        pressure = input_features[4]
+        st.write(f"**🪐 金土相位压力指数:** {pressure:.3f}")
+        if pressure > 0.3:
+            st.warning("⚠️ 检测到金星与土星形成硬相位 (0/90/180度)，这通常关联情感压抑或冷漠。")
+        else:
+            st.success("✅ 金土相位较为和谐，情感压力较小。")
 
-    # 存入历史，但不立刻Rerun，等待下次交互自动显示
-    st.session_state.history.extend(new_messages)
+    # --- 未来一周预测 ---
+    st.divider()
+    st.subheader("📅 未来7天情绪晴雨表")
+    
+    dates = []
+    probs = []
+    status = []
+    
+    # 循环预测未来7天
+    for i in range(7):
+        curr_date = target_date + timedelta(days=i)
+        d_str = curr_date.strftime('%Y-%m-%d')
+        feats = get_planetary_features(d_str)
+        p = clf.predict_proba([feats])[0][1]
+        
+        dates.append(curr_date.strftime('%m-%d'))
+        probs.append(p)
+        status.append("开心" if p > 0.5 else "低落")
+
+    # 绘制 Plotly 图表
+    fig = go.Figure()
+
+    # 添加折线
+    fig.add_trace(go.Scatter(
+        x=dates, 
+        y=probs,
+        mode='lines+markers+text',
+        text=[f"{p:.0%}" for p in probs],
+        textposition="top center",
+        line=dict(color='#FF4B4B', width=3, shape='spline'),
+        name='开心概率'
+    ))
+
+    # 添加阈值线
+    fig.add_hline(y=0.5, line_dash="dot", line_color="grey", annotation_text="中位数阈值")
+
+    fig.update_layout(
+        title="本周情绪波动趋势",
+        yaxis_title="开心概率",
+        yaxis_range=[0, 1],
+        template="plotly_white",
+        height=350,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # 简单的周总结
+    avg_prob = np.mean(probs)
+    if avg_prob > 0.6:
+        st.success("🌟 总结：未来一周整体星象不错，Alyssa大概率会度过开心的一周！")
+    elif avg_prob < 0.4:
+        st.info("🌧️ 总结：未来一周星象压力较大，可能会有些情绪起伏，建议多关心她。")
+    else:
+        st.info("☁️ 总结：未来一周情绪平稳，波澜不惊。")
+
+else:
+    st.write("请检查文件是否上传，以便开始预测。")
