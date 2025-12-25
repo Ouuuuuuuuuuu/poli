@@ -136,7 +136,7 @@ def analyze_cycle_patterns(df):
 @st.cache_resource
 def train_model():
     try:
-        chat_df = pd.read_csv('聊天记录_标准生理周期标注版.xlsx - Sheet1.csv')
+        chat_df = pd.read_csv('聊天记录_标准生理周期标注版.csv')
         features_df = pd.read_csv('engineered_features.csv')
         
         chat_df['Date'] = pd.to_datetime(chat_df['日期'])
