@@ -1,2 +1,9 @@
 streamlit
 requests
+pandas
+numpy
+ephem
+math
+plotlyo
+datetime
+sklearn
